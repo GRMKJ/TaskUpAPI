@@ -79,9 +79,9 @@ class DeviceRegisterResponse(BaseModel):
 
 class TaskBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    description: Optional[str]
+    description: Optional[str] = None
     priority: Priority = Priority.medium
-    due_at: Optional[datetime]
+    due_at: Optional[datetime] = None
 
 
 class TaskCreate(TaskBase):

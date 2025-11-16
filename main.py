@@ -6,17 +6,22 @@ from app.routers import auth, devices, sync, tasks
 
 settings = get_settings()
 
-app = FastAPI(title="TaskUp API", version="1.0.0", docs_url="/docs", redoc_url="/redoc")
+app = FastAPI(
+    title="TaskUp API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "https://taskup.cardomomo.icu",
-    "http://localhost:9001",
-    ]
+        "http://localhost:9001",
+        "https://taskup.cardomomo.icu"
+    ],
     allow_credentials=True,
-    allow_methods=["*"]
-    , allow_headers=["*"]
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth.router)
@@ -24,11 +29,9 @@ app.include_router(devices.router)
 app.include_router(tasks.router)
 app.include_router(sync.router)
 
-
 @app.get("/", tags=["system"])
 def root():
     return {"name": "TaskUp API", "version": app.version}
-
 
 @app.get("/health", tags=["system"])
 def health_check():
