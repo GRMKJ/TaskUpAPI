@@ -10,7 +10,10 @@ app = FastAPI(title="TaskUp API", version="1.0.0", docs_url="/docs", redoc_url="
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+    "https://taskup.cardomomo.icu",
+    "http://localhost:9001",
+    ]
     allow_credentials=True,
     allow_methods=["*"]
     , allow_headers=["*"]
