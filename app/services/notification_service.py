@@ -23,6 +23,9 @@ class NotificationService:
         self._request_adapter = Request()
         self._credentials = None
 
+        logger.debug("This should be the place where we load FCM credentials")
+
+        
         if project_id and credentials_file:
             try:
                 self._credentials = service_account.Credentials.from_service_account_file(

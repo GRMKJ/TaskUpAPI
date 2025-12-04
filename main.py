@@ -1,12 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+import logging
 from app.config import get_settings
 from app.routers import auth, devices, sync, tasks
 from app.services.notification_service import NotificationService
 from app.services.reminder_service import ReminderDispatcher
 
 settings = get_settings()
+log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+logging.getLogger().setLevel(log_level)
+logging.getLogger("app").setLevel(log_level)
 notification_service = NotificationService(
     project_id=settings.firebase_project_id,
     credentials_file=settings.firebase_credentials_file,
