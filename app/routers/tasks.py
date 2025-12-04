@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -23,6 +23,9 @@ def _compute_checksum(task: models.Task) -> str:
             "description": task.description,
             "priority": task.priority,
             "due_at": task.due_at.isoformat() if task.due_at else None,
+            "remind_at": task.remind_at.isoformat() if task.remind_at else None,
+            "remind_at_local": task.remind_local_at.isoformat() if task.remind_local_at else None,
+            "remind_timezone_offset_minutes": task.remind_timezone_offset_minutes,
             "completed": task.completed,
             "archived": task.archived,
             "version": task.version,
@@ -39,6 +42,44 @@ def _resolve_device(db: Session, user_id: int, device_uuid: Optional[str]):
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not registered")
     return device
+
+
+def _normalize_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _local_to_utc(local_dt: datetime, offset_minutes: int) -> datetime:
+    base = local_dt.replace(tzinfo=None)
+    return base - timedelta(minutes=offset_minutes)
+
+
+def _prepare_reminder_values(
+    *,
+    remind_at: datetime | None,
+    remind_at_local: datetime | None,
+    remind_timezone_offset_minutes: int | None,
+) -> tuple[datetime | None, datetime | None, int | None]:
+    utc_value = _normalize_datetime(remind_at)
+    local_value = remind_at_local
+    offset_value = remind_timezone_offset_minutes
+
+    if local_value is not None:
+        if local_value.tzinfo is not None:
+            local_value = local_value.replace(tzinfo=None)
+        if offset_value is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Timezone offset required when providing local reminder time",
+            )
+        utc_value = _local_to_utc(local_value, offset_value)
+    elif utc_value is not None and offset_value is not None and local_value is None:
+        local_value = (utc_value + timedelta(minutes=offset_value)).replace(tzinfo=None)
+
+    return utc_value, local_value, offset_value
 
 
 @router.get("", response_model=schemas.TaskListResponse)
@@ -74,7 +115,19 @@ def create_task(
         title=payload.title,
         description=payload.description,
         priority=payload.priority.value,
-        due_at=payload.due_at,
+        due_at=_normalize_datetime(payload.due_at),
+        remind_at=None,
+        remind_local_at=None,
+        remind_timezone_offset_minutes=None,
+    )
+    (
+        task.remind_at,
+        task.remind_local_at,
+        task.remind_timezone_offset_minutes,
+    ) = _prepare_reminder_values(
+        remind_at=payload.remind_at,
+        remind_at_local=payload.remind_at_local,
+        remind_timezone_offset_minutes=payload.remind_timezone_offset_minutes,
     )
     db.add(task)
     db.flush()
@@ -86,7 +139,14 @@ def create_task(
         task_id=task.id,
         device_id=device.id if device else None,
         operation="create",
-        payload={"task": payload.model_dump()},
+        payload={
+            "task": {
+                **payload.model_dump(),
+                "remind_at": task.remind_at.isoformat() if task.remind_at else None,
+                "remind_at_local": task.remind_local_at.isoformat() if task.remind_local_at else None,
+                "remind_timezone_offset_minutes": task.remind_timezone_offset_minutes,
+            }
+        },
     )
     if device:
         sync.update_cursor(device, change.id)
@@ -119,7 +179,41 @@ def update_task(
     if payload.priority is not None:
         task.priority = payload.priority.value
     if payload.due_at is not None:
-        task.due_at = payload.due_at
+        task.due_at = _normalize_datetime(payload.due_at)
+
+    reminder_fields = {
+        "remind_at",
+        "remind_at_local",
+        "remind_timezone_offset_minutes",
+    }
+    reminder_updated = False
+    if payload.clear_reminder:
+        task.remind_at = None
+        task.remind_local_at = None
+        task.remind_timezone_offset_minutes = None
+        task.reminder_sent_at = None
+        reminder_updated = True
+    elif reminder_fields & payload.model_fields_set:
+        remind_at_input = payload.remind_at if "remind_at" in payload.model_fields_set else task.remind_at
+        remind_local_input = (
+            payload.remind_at_local if "remind_at_local" in payload.model_fields_set else task.remind_local_at
+        )
+        remind_offset_input = (
+            payload.remind_timezone_offset_minutes
+            if "remind_timezone_offset_minutes" in payload.model_fields_set
+            else task.remind_timezone_offset_minutes
+        )
+        (
+            task.remind_at,
+            task.remind_local_at,
+            task.remind_timezone_offset_minutes,
+        ) = _prepare_reminder_values(
+            remind_at=remind_at_input,
+            remind_at_local=remind_local_input,
+            remind_timezone_offset_minutes=remind_offset_input,
+        )
+        task.reminder_sent_at = None
+        reminder_updated = True
     if payload.completed is not None and payload.completed != task.completed:
         task.completed = payload.completed
         task.completed_at = datetime.utcnow() if task.completed else None
@@ -131,12 +225,19 @@ def update_task(
 
     device = _resolve_device(db, current_user.id, device_uuid)
     sync = SyncService(db)
+    change_payload = payload.model_dump(exclude_unset=True)
+    if reminder_updated:
+        change_payload["remind_at"] = task.remind_at.isoformat() if task.remind_at else None
+        change_payload["remind_at_local"] = (
+            task.remind_local_at.isoformat() if task.remind_local_at else None
+        )
+        change_payload["remind_timezone_offset_minutes"] = task.remind_timezone_offset_minutes
     change = sync.record_change(
         user_id=current_user.id,
         task_id=task.id,
         device_id=device.id if device else None,
         operation="update",
-        payload={"fields": payload.model_dump(exclude_unset=True)},
+        payload={"fields": change_payload},
     )
     if device:
         sync.update_cursor(device, change.id)

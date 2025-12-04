@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, SerializationInfo, field_serializer
 
 
 class Priority(str, Enum):
@@ -41,9 +41,9 @@ class UserLogin(BaseModel):
 
 
 class GoogleOAuthRequest(BaseModel):
-    id_token: str = Field(min_length=10)
-    device_uuid: Optional[str] = Field(default=None, max_length=36)
-
+    id_token: str | None = None
+    access_token: str | None = None
+    platform: str | None = None
 
 class UserOut(BaseModel):
     id: int
@@ -70,6 +70,7 @@ class DeviceRegisterRequest(BaseModel):
     device_name: Optional[str]
     platform: Platform
     app_version: Optional[str]
+    fcm_token: Optional[str] = Field(default=None, max_length=512)
 
 
 class DeviceRegisterResponse(BaseModel):
@@ -82,6 +83,9 @@ class TaskBase(BaseModel):
     description: Optional[str] = None
     priority: Priority = Priority.medium
     due_at: Optional[datetime] = None
+    remind_at: Optional[datetime] = None
+    remind_at_local: Optional[datetime] = None
+    remind_timezone_offset_minutes: Optional[int] = Field(default=None, ge=-720, le=840)
 
 
 class TaskCreate(TaskBase):
@@ -93,8 +97,12 @@ class TaskUpdate(BaseModel):
     description: Optional[str]
     priority: Optional[Priority]
     due_at: Optional[datetime]
+    remind_at: Optional[datetime]
+    remind_at_local: Optional[datetime]
+    remind_timezone_offset_minutes: Optional[int]
     completed: Optional[bool]
     archived: Optional[bool]
+    clear_reminder: Optional[bool] = None
 
 
 class TaskOut(TaskBase):
@@ -105,9 +113,29 @@ class TaskOut(TaskBase):
     checksum: Optional[str]
     created_at: datetime
     updated_at: datetime
+    reminder_sent_at: Optional[datetime]
 
     class Config:
         from_attributes = True
+
+    @field_serializer(
+        "due_at",
+        "remind_at",
+        "remind_at_local",
+        "created_at",
+        "updated_at",
+        "reminder_sent_at",
+        when_used="json",
+    )
+    def serialize_utc(
+        self, value: datetime | None, info: SerializationInfo
+    ) -> str | None:  # noqa: ARG002
+        if value is None:
+            return None
+        normalized = value
+        if normalized.tzinfo is None:
+            normalized = normalized.replace(tzinfo=timezone.utc)
+        return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class SyncChangeIn(BaseModel):

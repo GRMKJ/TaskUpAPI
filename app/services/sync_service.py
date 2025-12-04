@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -30,12 +31,13 @@ class SyncService:
         operation: str,
         payload: dict,
     ) -> models.TaskChangeLog:
+        safe_payload = jsonable_encoder(payload)
         change = models.TaskChangeLog(
             user_id=user_id,
             task_id=task_id,
             device_id=device_id,
             operation=operation,
-            change_payload=payload,
+            change_payload=safe_payload,
             created_at=datetime.utcnow(),
         )
         self.db.add(change)

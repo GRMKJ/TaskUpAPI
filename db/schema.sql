@@ -29,6 +29,8 @@ CREATE TABLE devices (
     platform ENUM('android','ios','web','desktop') NOT NULL,
     app_version VARCHAR(50) NULL,
     last_seen_at DATETIME NULL,
+    fcm_token VARCHAR(512) NULL,
+    fcm_token_updated_at DATETIME NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_device_user_uuid (user_id, device_uuid),
     CONSTRAINT fk_devices_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -53,10 +55,14 @@ CREATE TABLE tasks (
     description TEXT NULL,
     priority ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
     due_at DATETIME NULL,
+    remind_at DATETIME NULL,
+    remind_local_at DATETIME NULL,
+    remind_timezone_offset_minutes INT NULL,
     completed TINYINT(1) NOT NULL DEFAULT 0,
     completed_at DATETIME NULL,
     archived TINYINT(1) NOT NULL DEFAULT 0,
     deleted_at DATETIME NULL,
+    reminder_sent_at DATETIME NULL,
     version BIGINT UNSIGNED NOT NULL DEFAULT 1,
     checksum CHAR(64) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -64,7 +70,8 @@ CREATE TABLE tasks (
     CONSTRAINT fk_tasks_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_tasks_user (user_id),
     INDEX idx_tasks_user_version (user_id, version),
-    INDEX idx_tasks_user_completed (user_id, completed, archived)
+    INDEX idx_tasks_user_completed (user_id, completed, archived),
+    INDEX idx_tasks_user_remind (user_id, remind_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE task_change_log (
@@ -131,29 +138,5 @@ CREATE TABLE recurring_tasks (
 ) ENGINE=InnoDB;
 
 SET FOREIGN_KEY_CHECKS = 1;
-
--- Optional seed data for local development
-INSERT INTO users (email, password_hash, display_name) VALUES
-    ('demo@taskup.app', '$2a$10$ABCDEFGHIJKLMNOPQRSTUVWXYZaBcDeFgHiJKlmnOPQRSTU', 'Demo User');
-
-INSERT INTO devices (user_id, device_uuid, device_name, platform, app_version, last_seen_at)
-VALUES
-    (1, '00000000-0000-0000-0000-000000000001', 'Demo Pixel 7', 'android', '1.0.0', NOW()),
-    (1, '00000000-0000-0000-0000-000000000002', 'Demo Web', 'web', '1.0.0', NOW());
-
-INSERT INTO tasks (user_id, title, description, priority, due_at, completed, version) VALUES
-    (1, 'Estudiar Flutter', 'Revisar widgets responsive', 'high', DATE_ADD(NOW(), INTERVAL 1 DAY), 0, 1),
-    (1, 'Hacer ejercicio', NULL, 'medium', DATE_ADD(NOW(), INTERVAL 2 DAY), 0, 1),
-    (1, 'Leer 20 min', 'Lectura ligera', 'low', NULL, 1, 2);
-
-INSERT INTO task_change_log (user_id, task_id, device_id, operation, change_payload)
-VALUES
-    (1, 1, 1, 'create', JSON_OBJECT('title', 'Estudiar Flutter', 'priority', 'high')),
-    (1, 2, 2, 'create', JSON_OBJECT('title', 'Hacer ejercicio', 'priority', 'medium')),
-    (1, 3, 2, 'complete', JSON_OBJECT('completed', TRUE));
-
-INSERT INTO device_sync_cursors (device_id, last_change_id, last_synced_at) VALUES
-    (1, 2, NOW()),
-    (2, 3, NOW());
 
 COMMIT;

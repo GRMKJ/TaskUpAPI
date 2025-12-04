@@ -3,8 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.routers import auth, devices, sync, tasks
+from app.services.notification_service import NotificationService
+from app.services.reminder_service import ReminderDispatcher
 
 settings = get_settings()
+notification_service = NotificationService(
+    project_id=settings.firebase_project_id,
+    credentials_file=settings.firebase_credentials_file,
+)
+reminder_dispatcher = ReminderDispatcher(settings, notification_service)
 
 app = FastAPI(
     title="TaskUp API",
@@ -28,6 +35,16 @@ app.include_router(auth.router)
 app.include_router(devices.router)
 app.include_router(tasks.router)
 app.include_router(sync.router)
+
+
+@app.on_event("startup")
+def _start_workers():
+    reminder_dispatcher.start()
+
+
+@app.on_event("shutdown")
+def _stop_workers():
+    reminder_dispatcher.stop()
 
 @app.get("/", tags=["system"])
 def root():

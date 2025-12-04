@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Index, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -51,6 +51,8 @@ class Device(Base):
     platform: Mapped[str] = mapped_column(PlatformEnum, nullable=False)
     app_version: Mapped[Optional[str]] = mapped_column(String(50))
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    fcm_token: Mapped[Optional[str]] = mapped_column(String(512))
+    fcm_token_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
 
     user: Mapped[User] = relationship(back_populates="devices")
@@ -83,10 +85,14 @@ class Task(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     priority: Mapped[str] = mapped_column(TaskPriorityEnum, default="medium", nullable=False)
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    remind_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    remind_local_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    remind_timezone_offset_minutes: Mapped[Optional[int]] = mapped_column(Integer)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     version: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
     checksum: Mapped[Optional[str]] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)

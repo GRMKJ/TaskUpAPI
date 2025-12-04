@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 from pydantic import Field, field_validator
@@ -14,6 +15,12 @@ class Settings(BaseSettings):
     refresh_token_expires_days: int = 30
     password_salt_rounds: int = 12
     google_client_ids: list[str] = Field(default_factory=list)
+    enable_reminder_worker: bool = True
+    reminder_poll_interval_seconds: int = 60
+    reminder_batch_size: int = 50
+    fcm_server_key: str | None = None
+    firebase_project_id: str | None = None
+    firebase_credentials_file: str | None = None
 
     @field_validator("google_client_ids", mode="before")
     @classmethod
@@ -21,6 +28,20 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [segment.strip() for segment in value.split(",") if segment.strip()]
         return value
+
+    @field_validator("firebase_credentials_file", mode="before")
+    @classmethod
+    def _default_credentials(cls, value):
+        if value:
+            return value
+        return os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+    @field_validator("firebase_project_id", mode="before")
+    @classmethod
+    def _default_project(cls, value):
+        if value:
+            return value
+        return os.getenv("FIREBASE_PROJECT_ID")
 
     model_config = SettingsConfigDict(
         env_prefix="TASKUP_",

@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import requests
 from datetime import datetime, timedelta
 import secrets
 
@@ -12,6 +12,8 @@ from ..database import get_db
 from ..dependencies import get_current_user
 from ..security import create_access_token, create_refresh_token, hash_password, verify_password
 from ..services.oauth import GoogleTokenVerifier
+from fastapi.responses import JSONResponse
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -96,20 +98,52 @@ def get_me(current_user: models.User = Depends(get_current_user)):
 
 @router.post("/google", response_model=schemas.TokenResponse)
 def login_with_google(payload: schemas.GoogleOAuthRequest, db: Session = Depends(get_db)):
-    if not settings.google_client_ids:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google OAuth not configured")
-    try:
-        claims = google_verifier.verify(payload.id_token)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token") from exc
+    claims: dict | None = None
 
+    if payload.id_token:
+        try:
+            claims = google_verifier.verify(payload.id_token)
+        except ValueError:
+            claims = None
+
+    if claims is None and payload.access_token:
+        try:
+            google_userinfo = requests.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {payload.access_token}"},
+                timeout=5,
+            )
+            if google_userinfo.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid Google access token",
+                )
+            claims = google_userinfo.json()
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unable to validate Google token",
+            )
+
+    if claims is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unable to validate Google token",
+        )
+
+    # 2. Extraemos email y verificamos
     email = claims.get("email")
     if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google token missing email")
-    if not claims.get("email_verified", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Google email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google token missing email"
+        )
 
+    # 3. Buscar o crear usuario
     user = db.query(models.User).filter(models.User.email == email).one_or_none()
+
     if not user:
         display_name = claims.get("name") or email.split("@")[0]
         random_password = secrets.token_urlsafe(32)
@@ -126,4 +160,5 @@ def login_with_google(payload: schemas.GoogleOAuthRequest, db: Session = Depends
         db.add(user)
         db.commit()
 
+    # 4. Emitir tokens
     return _issue_tokens(db, user)
